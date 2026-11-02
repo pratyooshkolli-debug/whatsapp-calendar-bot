@@ -1,0 +1,10 @@
+flask==3.0.3
+gunicorn==22.0.0
+requests==2.32.3
+python-dotenv==1.0.1
+anthropic>=0.40.0
+google-api-python-client==2.147.0
+google-auth==2.35.0
+google-auth-oauthlib==1.2.1
+pillow==10.4.0
+python-docx==1.1.2
