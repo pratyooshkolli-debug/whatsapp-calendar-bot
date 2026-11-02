@@ -169,23 +169,44 @@ Rules:
 """
 
 
+def _extract_json(raw: str) -> dict:
+    """Parse the model's reply even if it adds words or code fences around the JSON."""
+    raw = raw.strip()
+    try:
+        return json.loads(raw)
+    except ValueError:
+        pass
+    first, last = raw.find("{"), raw.rfind("}")
+    if first != -1 and last > first:
+        return json.loads(raw[first:last + 1])
+    raise ValueError("no JSON object in the model's reply")
+
+
 def parse_events(blocks: list) -> list[dict]:
     now = datetime.now(TZ)
     system = (
         "You extract calendar events from invites.\n"
         f"Current date/time: {now.strftime('%A, %d %B %Y, %H:%M')} in timezone {TIMEZONE}.\n\n"
         + SCHEMA_PROMPT
+        + "\nYour entire reply must be the JSON object only: start with { and end with }."
     )
-    resp = claude.messages.create(
-        model=CLAUDE_MODEL,
-        max_tokens=2000,
-        system=system,
-        messages=[{"role": "user", "content": blocks}],
-    )
-    raw = "".join(b.text for b in resp.content if b.type == "text").strip()
-    raw = raw.removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    events = json.loads(raw).get("events", [])
-    return [e for e in events if e.get("title") and e.get("start")]
+    last_error: Exception | None = None
+    for attempt in (1, 2):  # one retry if the reply can't be read
+        resp = claude.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=4000,
+            system=system,
+            messages=[{"role": "user", "content": blocks}],
+        )
+        raw = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text").strip()
+        try:
+            events = _extract_json(raw).get("events", [])
+            return [e for e in events if e.get("title") and e.get("start")]
+        except Exception as exc:
+            last_error = exc
+            log.error("Could not read the model reply (attempt %s): stop_reason=%s block_types=%s start=%r",
+                      attempt, resp.stop_reason, [getattr(b, "type", "?") for b in resp.content], raw[:200])
+    raise last_error
 
 
 # ---------- Media -> Claude content blocks ----------
