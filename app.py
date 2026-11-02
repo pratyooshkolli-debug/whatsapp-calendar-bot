@@ -712,7 +712,14 @@ def ingest():
         name = (f.filename or "").lower()
         inc.media.append(Media(sniff_mime((f.mimetype or "").lower(), name, data), name, lambda d=data: d))
     if not inc.text and not inc.media and not request.is_json:
-        inc.text = request.get_data(as_text=True).strip()  # raw text body
+        # Raw body: the Shortcut's "Request Body: File" sends the photo/PDF itself; otherwise plain text.
+        raw = request.get_data()
+        if raw:
+            mime = sniff_mime((request.mimetype or "").lower(), "", raw)
+            if mime in IMAGE_TYPES or mime == "application/pdf" or "wordprocessingml" in mime:
+                inc.media.append(Media(mime, "", lambda d=raw: d))
+            else:
+                inc.text = raw.decode("utf-8", "ignore").strip()
 
     as_events = request.args.get("format") == "events"  # zero-tap Shortcut: JSON in, 'Add New Event' out
     try:
