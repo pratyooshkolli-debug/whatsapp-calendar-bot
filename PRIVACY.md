@@ -1,20 +1,18 @@
-# Privacy Policy – WhatsApp Calendar Bot
+# Privacy Policy – Calendar Invite Bot
 
 Last updated: 2 November 2026
 
-WhatsApp Calendar Bot is a personal tool that adds events to the owner's own Google Calendar from invites sent over WhatsApp.
+Calendar Invite Bot is a personal tool that reads invites the owner sends to it (text, photos, PDFs) and returns a calendar file for the owner's phone to add.
 
 **What it accesses**
-- Google Calendar: permission to create events (`calendar.events` scope) on the account that authorised the app.
-- WhatsApp messages and files sent to the bot's number by the owner.
+- Only the invites the owner sends to it. It does not access any calendar, mailbox or contacts, and it stores no calendar login.
 
 **How data is used**
-- Message text, images and documents are sent to the Anthropic API solely to extract event details (title, date, time, location).
-- Extracted details are used to create a Google Calendar event.
+- Invite content is sent to the Anthropic API solely to extract event details (title, date, time, location).
+- The extracted details are put into a calendar file that is available at an unguessable link for one hour (kept in memory only), so the owner's phone can add it.
 
 **Storage and sharing**
-- Messages and files are processed in memory and are not stored by the bot.
-- Data is not sold or shared with anyone other than the service providers needed to run the bot (Meta, Anthropic, Google, and the hosting provider).
+- Invites and results are not stored permanently and are not sold or shared, other than with the service providers needed to run the tool (Anthropic and the hosting provider).
 
 **Contact**
 pratyoosh.kolli@gmail.com
