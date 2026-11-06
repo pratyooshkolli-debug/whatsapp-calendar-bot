@@ -166,6 +166,9 @@ Rules:
 - If no year is given, use the next upcoming occurrence of that date.
 - Convert times to 24h in the JSON. If only a start time is given, set "end" to null.
 - Keep addresses and meeting links in location/description.
+- Make each title specific: the event name plus who it is for when the invite says (for example
+  "Sangeet - Madhav & Vishali"). Put extras such as "followed by dinner" or a muhurtham time in the description.
+- If an event says "onwards" or "followed by dinner/lunch" and gives no end time, set "end" three hours after "start".
 """
 
 
@@ -214,7 +217,10 @@ HEIC_TYPES = {"image/heic", "image/heif"}
 IMAGE_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/gif"} | HEIC_TYPES
 TEXT_TYPES = {"text/calendar", "text/x-vcalendar", "text/plain", "text/csv"}
 MAX_IMAGE_BYTES = 3_500_000
-MAX_PDF_BYTES = 30_000_000
+PDF_RASTER_ABOVE = 4_000_000   # bigger PDFs are turned into small page images first
+MAX_PDF_DIRECT = 20_000_000    # largest PDF we can still send as-is (the API request cap is 32 MB incl. encoding)
+MAX_PDF_PAGES = 15
+PAGE_LONG_EDGE = 1568
 
 
 def sniff_mime(mime: str, filename: str, data: bytes) -> str:
@@ -252,6 +258,31 @@ def image_block(data: bytes, mime: str) -> dict:
     }
 
 
+def pdf_to_image_blocks(data: bytes) -> list | None:
+    """Render a big (usually scanned) PDF to modest JPEG pages so the request stays small.
+    Returns None if that isn't possible, so the caller can fall back to sending the PDF itself."""
+    try:
+        try:
+            import pymupdf as fitz  # PyMuPDF 1.24.3+
+        except ImportError:
+            import fitz
+
+        doc = fitz.open(stream=data, filetype="pdf")
+        blocks = []
+        for i, page in enumerate(doc):
+            if i >= MAX_PDF_PAGES:
+                break
+            zoom = min(3.0, PAGE_LONG_EDGE / max(page.rect.width, page.rect.height))
+            pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+            blocks.append(image_block(pix.tobytes("jpeg", jpg_quality=80), "image/jpeg"))
+        doc.close()
+        log.info("Rendered %d PDF page(s) from a %.1f MB PDF", len(blocks), len(data) / 1e6)
+        return blocks or None
+    except Exception:
+        log.exception("Could not render the PDF to images")
+        return None
+
+
 def docx_text(data: bytes) -> str:
     from docx import Document
 
@@ -275,13 +306,17 @@ def build_blocks(inc: Incoming) -> list | str:
         if mime in IMAGE_TYPES:
             blocks.append(image_block(data, mime))
         elif mime == "application/pdf" or name.endswith(".pdf"):
-            if len(data) > MAX_PDF_BYTES:
-                return "That PDF is too large (max ~30 MB)."
-            blocks.append({
-                "type": "document",
-                "source": {"type": "base64", "media_type": "application/pdf",
-                           "data": base64.b64encode(data).decode()},
-            })
+            pages = pdf_to_image_blocks(data) if len(data) > PDF_RASTER_ABOVE else None
+            if pages:
+                blocks.extend(pages)
+            elif len(data) > MAX_PDF_DIRECT:
+                return "That PDF is too large for me to read. Try a smaller copy of it."
+            else:
+                blocks.append({
+                    "type": "document",
+                    "source": {"type": "base64", "media_type": "application/pdf",
+                               "data": base64.b64encode(data).decode()},
+                })
         elif "wordprocessingml" in mime or name.endswith(".docx"):
             blocks.append({"type": "text", "text": "Contents of attached Word file:\n" + docx_text(data)})
         elif mime in TEXT_TYPES or name.endswith((".ics", ".txt")):
